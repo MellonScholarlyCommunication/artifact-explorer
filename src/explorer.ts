@@ -1,0 +1,135 @@
+import {QueryEngine} from "@comunica/query-sparql";
+
+const engine = new QueryEngine();
+
+export async function exploreArtifact(artifactUrl: string) {
+  const ldes = await getLdesUrl(artifactUrl);
+  const ldesViews = await getLdesViews(ldes);
+  const ldesView = ldesViews[0];
+  const isLDESinLDPClient = await isLDESinLDP(ldesView.viewDescription ?? ldesView.view);
+
+  if (isLDESinLDPClient) {
+    const nodeRelations = await getNodeRelations(ldesView.view);
+
+    return {
+      ldes: ldes,
+      view: ldesView,
+      relations: nodeRelations,
+      LDESinLDP: isLDESinLDPClient,
+    }
+  } else {
+    throw new Error('Only LDES in LDP is supported at the moment');
+  }
+}
+
+/**
+ * Get LDES from artifact by doing a HEAD request and parsing the Link header
+ */
+async function getLdesUrl(artifactUrl: string) {
+  const response = await fetch(artifactUrl, {method: 'HEAD'});
+  const linkHeaders = response.headers.get('Link')?.split(',').map((linkHeader: string) => {
+    const linkHeaderParts = linkHeader.trim().split(';');
+    const url = linkHeaderParts[0].slice(1, -1);
+    const rel = linkHeaderParts[1].trim().split('=')[1].slice(1, -1);
+    return {url, rel};
+  });
+  const ldes = linkHeaders?.find((linkHeader: { url: string; rel: string; }) => linkHeader.rel === 'https://w3id.org/ldes#EventStream')?.url;
+  if (!ldes) {
+    throw new Error('No LDES found');
+  }
+  console.log('Found LDES: ' + ldes);
+  return ldes;
+}
+
+async function getLdesViews(ldesUrl: string) {
+  const query = `
+    PREFIX ldes: <https://w3id.org/ldes#>
+    PREFIX tree: <https://w3id.org/tree#>
+    
+    SELECT ?view ?viewDescription
+    WHERE {
+      ?ldes a ldes:EventStream;
+            tree:view ?view.
+      ?view a tree:Node.
+      OPTIONAL {
+        ?view tree:viewDescription ?viewDescription.
+        ?viewDescription a tree:ViewDescription.
+      }
+    }`;
+
+  const bindings = await (await engine.queryBindings(query, {sources: [ldesUrl]})).toArray();
+  return bindings.map((binding: any) => {
+    return {
+      view: binding.get('view').value,
+      viewDescription: binding.get('viewDescription')?.value,
+    };
+  });
+}
+
+async function isLDESinLDP(viewDescriptionUrl?: string) {
+  if (!viewDescriptionUrl) {
+    return false;
+  }
+  const query = `
+    PREFIX ldes: <https://w3id.org/ldes#>
+    PREFIX tree: <https://w3id.org/tree#>
+    
+    ASK {
+      <${viewDescriptionUrl}> a tree:ViewDescription;
+                              ldes:managedBy ?ldesInLdp.
+      ?ldesInLdp a ldes:LDESinLDPClient.
+    }`;
+
+  return await engine.queryBoolean(query, {sources: [viewDescriptionUrl]});
+}
+
+async function getNodeRelations(nodeUrl: string) {
+  const query = `
+    PREFIX ldes: <https://w3id.org/ldes#>
+    PREFIX tree: <https://w3id.org/tree#>
+    
+    SELECT ?relation ?relationType ?node ?value ?path
+    WHERE {
+      <${nodeUrl}> a tree:Node;
+                   tree:relation ?relation.
+     ?relation a ?relationType;
+               tree:node ?node.
+     OPTIONAL { ?relation tree:value ?value. }
+     OPTIONAL { ?relation tree:path ?path. }
+    }`;
+
+  const bindings = await (await engine.queryBindings(query, {sources: [nodeUrl]})).toArray();
+  return bindings.map((binding: any) => {
+    return {
+      relation: binding.get('relation').value,
+      relationType: binding.get('relationType').value,
+      node: binding.get('node').value,
+      value: binding.get('value')?.value,
+      path: binding.get('path')?.value,
+    };
+  });
+}
+
+export async function getMembersOfFragment(fragmentUrl: string, LDESinLDP: boolean = true) {
+  if (LDESinLDP) {
+    const query = `
+    PREFIX ldes: <https://w3id.org/ldes#>
+    PREFIX tree: <https://w3id.org/tree#>
+    PREFIX ldp: <http://www.w3.org/ns/ldp#>
+    
+    SELECT ?member
+    WHERE {
+      <${fragmentUrl}> a ldp:BasicContainer;
+                       ldp:contains ?member.
+    }`;
+
+    const bindings = await (await engine.queryBindings(query, {sources: [fragmentUrl]})).toArray();
+    return bindings.map((binding: any) => {
+      return {
+        member: binding.get('member').value,
+      };
+    });
+  } else {
+    throw new Error('Only LDES in LDP is supported at the moment');
+  }
+}

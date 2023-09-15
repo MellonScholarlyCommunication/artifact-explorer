@@ -1,0 +1,31 @@
+{
+  "name": "artifact-explorer",
+  "type": "module",
+  "version": "1.0.0",
+  "description": "Explore the details of an artifact by consuming its linked LDES",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "npx tsc"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MellonScholarlyCommunication/artifact-explorer.git"
+  },
+  "author": "Ieben Smessaert",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/MellonScholarlyCommunication/artifact-explorer/issues"
+  },
+  "homepage": "https://github.com/MellonScholarlyCommunication/artifact-explorer#readme",
+  "devDependencies": {
+    "typescript": "^5.2.2"
+  },
+  "dependencies": {
+    "@comunica/query-sparql": "^2.9.0"
+  }
+}
