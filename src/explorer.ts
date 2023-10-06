@@ -113,8 +113,6 @@ async function getNodeRelations(nodeUrl: string) {
 export async function getMembersOfFragment(fragmentUrl: string, LDESinLDP: boolean = true) {
   if (LDESinLDP) {
     const query = `
-    PREFIX ldes: <https://w3id.org/ldes#>
-    PREFIX tree: <https://w3id.org/tree#>
     PREFIX ldp: <http://www.w3.org/ns/ldp#>
     
     SELECT ?member
@@ -124,12 +122,88 @@ export async function getMembersOfFragment(fragmentUrl: string, LDESinLDP: boole
     }`;
 
     const bindings = await (await engine.queryBindings(query, {sources: [fragmentUrl]})).toArray();
-    return bindings.map((binding: any) => {
-      return {
-        member: binding.get('member').value,
-      };
-    });
+    return bindings.map((binding: any) => binding.get('member').value);
   } else {
     throw new Error('Only LDES in LDP is supported at the moment');
   }
+}
+
+export async function getContentOfMember(memberUrl: string) {
+  const query = `
+  PREFIX as: <https://www.w3.org/ns/activitystreams#>
+  
+  SELECT ?id ?actorUrl ?actorName ?object ?targetUrl ?targetName
+  WHERE {
+    ?id as:actor ?actorUrl;
+        as:object ?objectId;
+        as:target ?targetUrl.
+    ?actorUrl as:name ?actorName.
+    ?targetUrl as:name ?targetName.
+    ?objectId as:url ?object.
+  }`;
+
+  const bindings = await (await engine.queryBindings(query, {sources: [memberUrl]})).toArray();
+  if (bindings.length !== 1) {
+    console.warn(`Found ${bindings.length} results for content, expected 1.`);
+  }
+  const content = bindings.map((binding: any) => {
+    return {
+      id: binding.get('id').value,
+      actorUrl: binding.get('actorUrl').value,
+      actorName: binding.get('actorName').value,
+      object: binding.get('object').value,
+      targetUrl: binding.get('targetUrl').value,
+      targetName: binding.get('targetName').value,
+      types: [] as any,
+      objectTypes: [] as any,
+    };
+  })[0];
+
+  // Get types of content
+  const typesQuery = `
+  PREFIX as: <https://www.w3.org/ns/activitystreams#>
+  
+  SELECT ?type
+  WHERE {
+    <${content.id}> a ?type.
+  }`;
+  const typesBindings = await (await engine.queryBindings(typesQuery, {sources: [memberUrl]})).toArray();
+  content.types = typesBindings.map((binding: any) => binding.get('type').value);
+
+  // Get types of object
+  const objectTypesQuery = `
+  PREFIX as: <https://www.w3.org/ns/activitystreams#>
+  
+  SELECT ?type
+  WHERE {
+    <${content.object}> a ?type.
+  }`;
+  const objectTypesBindings = await (await engine.queryBindings(objectTypesQuery, {sources: [memberUrl]})).toArray();
+  content.objectTypes = objectTypesBindings.map((binding: any) => binding.get('type').value);
+
+  return content;
+}
+
+export async function getMetadataOfMember(fragmentUrl: string, memberUrl: string) {
+  const query = `
+    PREFIX ldp: <http://www.w3.org/ns/ldp#>
+    PREFIX dc: <http://purl.org/dc/terms/>
+    
+    SELECT ?dateTime
+    WHERE {
+      <${fragmentUrl}> a ldp:BasicContainer;
+                       ldp:contains <${memberUrl}>.
+      <${memberUrl}> a ldp:Resource;
+      dc:modified ?dateTime.
+    }`;
+
+  const bindings = await (await engine.queryBindings(query, {sources: [fragmentUrl]})).toArray();
+  if (bindings.length !== 1) {
+    console.warn(`Found ${bindings.length} results for metadata, expected 1.`);
+  }
+  return bindings.map((binding: any) => {
+    return {
+      dateTime: binding.get('dateTime').value
+    }
+  })[0];
 }
