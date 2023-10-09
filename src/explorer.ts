@@ -33,7 +33,10 @@ async function getLdesUrl(artifactUrl: string) {
     const rel = linkHeaderParts[1].trim().split('=')[1].slice(1, -1);
     return {url, rel};
   });
-  const ldes = linkHeaders?.find((linkHeader: { url: string; rel: string; }) => linkHeader.rel === 'https://w3id.org/ldes#EventStream')?.url;
+  const ldes = linkHeaders?.find((linkHeader: {
+    url: string;
+    rel: string;
+  }) => linkHeader.rel === 'https://w3id.org/ldes#EventStream')?.url;
   if (!ldes) {
     throw new Error('No LDES found');
   }
@@ -135,11 +138,10 @@ export async function getContentOfMember(memberUrl: string) {
   SELECT ?id ?actorUrl ?actorName ?object ?targetUrl ?targetName
   WHERE {
     ?id as:actor ?actorUrl;
-        as:object ?objectId;
+        as:object ?object;
         as:target ?targetUrl.
     ?actorUrl as:name ?actorName.
     ?targetUrl as:name ?targetName.
-    ?objectId as:url ?object.
   }`;
 
   const bindings = await (await engine.queryBindings(query, {sources: [memberUrl]})).toArray();
@@ -155,7 +157,6 @@ export async function getContentOfMember(memberUrl: string) {
       targetUrl: binding.get('targetUrl').value,
       targetName: binding.get('targetName').value,
       types: [] as any,
-      objectTypes: [] as any,
     };
   })[0];
 
@@ -169,17 +170,6 @@ export async function getContentOfMember(memberUrl: string) {
   }`;
   const typesBindings = await (await engine.queryBindings(typesQuery, {sources: [memberUrl]})).toArray();
   content.types = typesBindings.map((binding: any) => binding.get('type').value);
-
-  // Get types of object
-  const objectTypesQuery = `
-  PREFIX as: <https://www.w3.org/ns/activitystreams#>
-  
-  SELECT ?type
-  WHERE {
-    <${content.object}> a ?type.
-  }`;
-  const objectTypesBindings = await (await engine.queryBindings(objectTypesQuery, {sources: [memberUrl]})).toArray();
-  content.objectTypes = objectTypesBindings.map((binding: any) => binding.get('type').value);
 
   return content;
 }
