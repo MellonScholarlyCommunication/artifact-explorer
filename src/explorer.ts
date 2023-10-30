@@ -135,13 +135,14 @@ export async function getContentOfMember(memberUrl: string) {
   const query = `
   PREFIX as: <https://www.w3.org/ns/activitystreams#>
   
-  SELECT ?id ?actorUrl ?actorName ?object ?targetUrl ?targetName
+  SELECT ?id ?actorUrl ?actorName ?object ?targetUrl ?targetName ?context
   WHERE {
     ?id as:actor ?actorUrl;
         as:object ?object;
         as:target ?targetUrl.
     ?actorUrl as:name ?actorName.
     ?targetUrl as:name ?targetName.
+    OPTIONAL { ?id as:context ?context. }
   }`;
 
   const bindings = await (await engine.queryBindings(query, {sources: [memberUrl]})).toArray();
@@ -156,6 +157,7 @@ export async function getContentOfMember(memberUrl: string) {
       object: binding.get('object').value,
       targetUrl: binding.get('targetUrl').value,
       targetName: binding.get('targetName').value,
+      context: binding.get('context')?.value,
       types: [] as any,
     };
   })[0];
