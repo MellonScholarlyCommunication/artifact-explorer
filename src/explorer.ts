@@ -159,19 +159,41 @@ export async function getContentOfMember(memberUrl: string) {
       targetName: binding.get('targetName').value,
       context: binding.get('context')?.value,
       types: [] as any,
+      objectTypes: [] as any,
+      objectRelationship: {} as any,
     };
   })[0];
 
   // Get types of content
-  const typesQuery = `
-  PREFIX as: <https://www.w3.org/ns/activitystreams#>
-  
-  SELECT ?type
-  WHERE {
-    <${content.id}> a ?type.
-  }`;
-  const typesBindings = await (await engine.queryBindings(typesQuery, {sources: [memberUrl]})).toArray();
-  content.types = typesBindings.map((binding: any) => binding.get('type').value);
+  content.types = await getTypesOfUri(content.id, memberUrl);
+
+  // Get types of object
+  content.objectTypes = await getTypesOfUri(content.object, memberUrl);
+
+  if (content.objectTypes.includes('https://www.w3.org/ns/activitystreams#Relationship')) {
+    const relationshipQuery = `
+    PREFIX as: <https://www.w3.org/ns/activitystreams#>
+    
+    SELECT ?subject ?relationship ?object
+    WHERE {
+        <${content.object}> as:subject ?subject;
+                            as:relationship ?relationship;
+                            as:object ?object.
+    }`;
+
+    const relationshipBindings = await (await engine.queryBindings(relationshipQuery, {sources: [memberUrl]})).toArray();
+    if (relationshipBindings.length !== 1) {
+      console.warn(`Found ${relationshipBindings.length} results for relationship, expected 1.`);
+    } else {
+      content.objectRelationship = relationshipBindings.map((binding: any) => {
+        return {
+          subject: binding.get('subject').value,
+          relationship: binding.get('relationship').value,
+          object: binding.get('object').value,
+        };
+      })[0];
+    }
+  }
 
   return content;
 }
@@ -198,4 +220,15 @@ export async function getMetadataOfMember(fragmentUrl: string, memberUrl: string
       dateTime: binding.get('dateTime').value
     }
   })[0];
+}
+
+async function getTypesOfUri(uri: string, source: string) {
+  const query = `    
+    SELECT ?type
+    WHERE {
+      <${uri}> a ?type.
+    }`;
+
+  const bindings = await (await engine.queryBindings(query, {sources: [source]})).toArray();
+  return bindings.map((binding: any) => binding.get('type').value);
 }
