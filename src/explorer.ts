@@ -125,7 +125,7 @@ export async function getMembersOfFragment(fragmentUrl: string, LDESinLDP: boole
     }`;
 
     // custom fetch with no-cache, so we always get the latest data
-    const customFetch = (url: RequestInfo | URL, init?: RequestInit) => {
+    const customFetch = ((url: RequestInfo | URL, init?: RequestInit) => {
       return fetch(url, {
         ...init,
         headers: {
@@ -133,7 +133,7 @@ export async function getMembersOfFragment(fragmentUrl: string, LDESinLDP: boole
           'Cache-Control': 'no-cache',
         },
       });
-    }
+    }) as typeof fetch;
 
     const bindings = await (await engine.queryBindings(query, {sources: [fragmentUrl], fetch: customFetch})).toArray();
     return bindings.map((binding: any) => binding.get('member').value);
