@@ -124,7 +124,18 @@ export async function getMembersOfFragment(fragmentUrl: string, LDESinLDP: boole
                        ldp:contains ?member.
     }`;
 
-    const bindings = await (await engine.queryBindings(query, {sources: [fragmentUrl]})).toArray();
+    // custom fetch with no-cache, so we always get the latest data
+    const customFetch = (url: RequestInfo | URL, init?: RequestInit) => {
+      return fetch(url, {
+        ...init,
+        headers: {
+          ...init?.headers,
+          'Cache-Control': 'no-cache',
+        },
+      });
+    }
+
+    const bindings = await (await engine.queryBindings(query, {sources: [fragmentUrl], fetch: customFetch})).toArray();
     return bindings.map((binding: any) => binding.get('member').value);
   } else {
     throw new Error('Only LDES in LDP is supported at the moment');
