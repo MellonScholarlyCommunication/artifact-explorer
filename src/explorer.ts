@@ -138,10 +138,10 @@ export async function getContentOfMember(memberUrl: string) {
   SELECT ?id ?actorUrl ?actorName ?object ?targetUrl ?targetName ?context
   WHERE {
     ?id as:actor ?actorUrl;
-        as:object ?object;
-        as:target ?targetUrl.
-    ?actorUrl as:name ?actorName.
-    ?targetUrl as:name ?targetName.
+        as:object ?object.
+    OPTIONAL { ?id as:target ?targetUrl. }
+    OPTIONAL { ?actorUrl as:name ?actorName. }
+    OPTIONAL { ?targetUrl as:name ?targetName. }
     OPTIONAL { ?id as:context ?context. }
   }`;
 
@@ -153,10 +153,10 @@ export async function getContentOfMember(memberUrl: string) {
     return {
       id: binding.get('id').value,
       actorUrl: binding.get('actorUrl').value,
-      actorName: binding.get('actorName').value,
+      actorName: binding.get('actorName')?.value,
       object: binding.get('object').value,
-      targetUrl: binding.get('targetUrl').value,
-      targetName: binding.get('targetName').value,
+      targetUrl: binding.get('targetUrl')?.value,
+      targetName: binding.get('targetName')?.value,
       context: binding.get('context')?.value,
       types: [] as any,
       objectTypes: [] as any,
