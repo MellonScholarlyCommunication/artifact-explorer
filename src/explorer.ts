@@ -12,11 +12,9 @@ export async function exploreArtifact(artifactUrl: string) {
     const nodeRelations = await getNodeRelations(ldesView.view);
 
     return {
-      ldes: ldes,
-      view: ldesView,
-      relations: nodeRelations,
-      LDESinLDP: isLDESinLDPClient,
-    }
+      pages: nodeRelations.sort((a: any, b: any) => a.value < b.value ? -1 : 1).map((nodeRelation: any) => nodeRelation.node),
+      type: 'LDESinLDP',
+    };
   } else {
     throw new Error('Only LDES in LDP is supported at the moment');
   }
@@ -113,15 +111,17 @@ async function getNodeRelations(nodeUrl: string) {
   });
 }
 
-export async function getMembersOfFragment(fragmentUrl: string, LDESinLDP: boolean = true) {
-  if (LDESinLDP) {
+export async function getMembersOfFragment(fragmentUrl: string, type: string) {
+  if (type === 'LDESinLDP') {
     const query = `
     PREFIX ldp: <http://www.w3.org/ns/ldp#>
     
-    SELECT ?member
+    SELECT ?member ?dateTime
     WHERE {
       <${fragmentUrl}> a ldp:BasicContainer;
                        ldp:contains ?member.
+      ?member a ldp:Resource;
+              dc:modified ?dateTime.
     }`;
 
     // custom fetch with no-cache, so we always get the latest data
@@ -136,13 +136,21 @@ export async function getMembersOfFragment(fragmentUrl: string, LDESinLDP: boole
     }) as typeof fetch;
 
     const bindings = await (await engine.queryBindings(query, {sources: [fragmentUrl], fetch: customFetch})).toArray();
-    return bindings.map((binding: any) => binding.get('member').value);
+
+    return await Promise.all(bindings.map(async (binding: any) => {
+      return {
+        content: await getContentOfMember(binding.get('member').value),
+        metadata: {
+          dateTime: binding.get('dateTime').value,
+        },
+      };
+    }));
   } else {
     throw new Error('Only LDES in LDP is supported at the moment');
   }
 }
 
-export async function getContentOfMember(memberUrl: string) {
+async function getContentOfMember(memberUrl: string) {
   const query = `
   PREFIX as: <https://www.w3.org/ns/activitystreams#>
   
@@ -207,30 +215,6 @@ export async function getContentOfMember(memberUrl: string) {
   }
 
   return content;
-}
-
-export async function getMetadataOfMember(fragmentUrl: string, memberUrl: string) {
-  const query = `
-    PREFIX ldp: <http://www.w3.org/ns/ldp#>
-    PREFIX dc: <http://purl.org/dc/terms/>
-    
-    SELECT ?dateTime
-    WHERE {
-      <${fragmentUrl}> a ldp:BasicContainer;
-                       ldp:contains <${memberUrl}>.
-      <${memberUrl}> a ldp:Resource;
-      dc:modified ?dateTime.
-    }`;
-
-  const bindings = await (await engine.queryBindings(query, {sources: [fragmentUrl]})).toArray();
-  if (bindings.length !== 1) {
-    console.warn(`Found ${bindings.length} results for metadata, expected 1.`);
-  }
-  return bindings.map((binding: any) => {
-    return {
-      dateTime: binding.get('dateTime').value
-    }
-  })[0];
 }
 
 async function getTypesOfUri(uri: string, source: string) {
