@@ -1,21 +1,30 @@
-import {QueryEngine} from "@comunica/query-sparql";
+import {QueryEngine} from "@comunica/query-sparql-link-traversal-solid";
 
 const engine = new QueryEngine();
 
-export async function exploreArtifact(artifactUrl: string) {
+export async function exploreArtifact(artifactUrl: string): Promise<any> {
   const ldes = await getLdesUrl(artifactUrl);
-  const ldesViews = await getLdesViews(ldes);
-  const ldesView = ldesViews[0];
-  const isLDESinLDPClient = await isLDESinLDP(ldesView.viewDescription ?? ldesView.view);
+  const isLDESinLDPClient = await isLDESinLDP(ldes);
 
   if (isLDESinLDPClient) {
-    const nodeRelations = await getNodeRelations(ldesView.view);
+    console.log('LDES in LDP');
+    const nodeRelations = await getNodeRelations(ldes);
+    console.log(nodeRelations);
 
     return {
-      pages: nodeRelations.sort((a: any, b: any) => a.value < b.value ? -1 : 1).map((nodeRelation: any) => nodeRelation.node),
+      pages: nodeRelations.transform({
+        map: (nodeRelation: any) => {
+          return {
+            uri: nodeRelation.node,
+            sort: nodeRelation.value,
+          }
+        }
+      }),
+      url: ldes,
       type: 'LDESinLDP',
     };
   } else {
+    console.log('LDES not in LDP');
     throw new Error('Only LDES in LDP is supported at the moment');
   }
 }
@@ -42,33 +51,8 @@ async function getLdesUrl(artifactUrl: string) {
   return ldes;
 }
 
-async function getLdesViews(ldesUrl: string) {
-  const query = `
-    PREFIX ldes: <https://w3id.org/ldes#>
-    PREFIX tree: <https://w3id.org/tree#>
-    
-    SELECT ?view ?viewDescription
-    WHERE {
-      ?ldes a ldes:EventStream;
-            tree:view ?view.
-      ?view a tree:Node.
-      OPTIONAL {
-        ?view tree:viewDescription ?viewDescription.
-        ?viewDescription a tree:ViewDescription.
-      }
-    }`;
-
-  const bindings = await (await engine.queryBindings(query, {sources: [ldesUrl]})).toArray();
-  return bindings.map((binding: any) => {
-    return {
-      view: binding.get('view').value,
-      viewDescription: binding.get('viewDescription')?.value,
-    };
-  });
-}
-
-async function isLDESinLDP(viewDescriptionUrl?: string) {
-  if (!viewDescriptionUrl) {
+async function isLDESinLDP(ldesUrl?: string) {
+  if (!ldesUrl) {
     return false;
   }
   const query = `
@@ -76,52 +60,71 @@ async function isLDESinLDP(viewDescriptionUrl?: string) {
     PREFIX tree: <https://w3id.org/tree#>
     
     ASK {
-      <${viewDescriptionUrl}> a tree:ViewDescription;
-                              ldes:managedBy ?ldesInLdp.
+      <${ldesUrl}> a ldes:EventStream;
+                   tree:view ?view.
+      ?view a tree:Node;
+            tree:viewDescription ?viewDescription.
+      ?viewDescription a tree:ViewDescription;
+            ldes:managedBy ?ldesInLdp.
       ?ldesInLdp a ldes:LDESinLDPClient.
     }`;
 
-  return await engine.queryBoolean(query, {sources: [viewDescriptionUrl]});
+  return await engine.queryBoolean(query, {sources: [ldesUrl], lenient: true});
 }
 
-async function getNodeRelations(nodeUrl: string) {
+async function getNodeRelations(ldesUrl: string) {
   const query = `
     PREFIX ldes: <https://w3id.org/ldes#>
     PREFIX tree: <https://w3id.org/tree#>
     
     SELECT ?relation ?relationType ?node ?value ?path
     WHERE {
-      <${nodeUrl}> a tree:Node;
-                   tree:relation ?relation.
-     ?relation a ?relationType;
-               tree:node ?node.
-     OPTIONAL { ?relation tree:value ?value. }
-     OPTIONAL { ?relation tree:path ?path. }
+        <${ldesUrl}> a ldes:EventStream;
+                   tree:view ?view.
+        ?view a tree:Node;
+              tree:relation ?relation.
+        ?relation a ?relationType;
+                  tree:node ?node.
+        OPTIONAL { ?relation tree:value ?value. }
+        OPTIONAL { ?relation tree:path ?path. }
     }`;
 
-  const bindings = await (await engine.queryBindings(query, {sources: [nodeUrl]})).toArray();
-  return bindings.map((binding: any) => {
-    return {
-      relation: binding.get('relation').value,
-      relationType: binding.get('relationType').value,
-      node: binding.get('node').value,
-      value: binding.get('value')?.value,
-      path: binding.get('path')?.value,
-    };
+  const bindingsStream = (await engine.queryBindings(query, {sources: [ldesUrl], lenient: true}));
+
+  return bindingsStream.transform({
+    map: (binding: any) => {
+      return {
+        relation: binding.get('relation').value,
+        relationType: binding.get('relationType').value,
+        node: binding.get('node').value,
+        value: binding.get('value')?.value,
+        path: binding.get('path')?.value,
+      };
+    },
   });
 }
 
-export async function getMembersOfFragment(fragmentUrl: string, type: string) {
+export async function getMembersOfFragment(ldesUrl: string, fragmentUri: string, type: string): Promise<any> {
   if (type === 'LDESinLDP') {
     const query = `
+    PREFIX ldes: <https://w3id.org/ldes#>
+    PREFIX tree: <https://w3id.org/tree#>
     PREFIX ldp: <http://www.w3.org/ns/ldp#>
+    PREFIX dc: <http://purl.org/dc/terms/>
     
     SELECT ?member ?dateTime
     WHERE {
-      <${fragmentUrl}> a ldp:BasicContainer;
-                       ldp:contains ?member.
+      <${ldesUrl}> a ldes:EventStream;
+                   tree:view ?view.
+      ?view a tree:Node;
+            tree:relation ?relation.
+      ?relation a ?relationType;
+                tree:node ?node.
+      ?node a ldp:BasicContainer;
+            ldp:contains ?member.
       ?member a ldp:Resource;
               dc:modified ?dateTime.
+      FILTER (?node = <${fragmentUri}>).
     }`;
 
     // custom fetch with no-cache, so we always get the latest data
@@ -135,16 +138,19 @@ export async function getMembersOfFragment(fragmentUrl: string, type: string) {
       });
     }) as typeof fetch;
 
-    const bindings = await (await engine.queryBindings(query, {sources: [fragmentUrl], fetch: customFetch})).toArray();
+    // TODO: remove fragmentUri from sources again, as it should be automatically discovered by the link traversal.
+    const bindings = await engine.queryBindings(query, {sources: [ldesUrl, fragmentUri], fetch: customFetch, lenient: false});
 
-    return await Promise.all(bindings.map(async (binding: any) => {
-      return {
-        content: await getContentOfMember(binding.get('member').value),
-        metadata: {
-          dateTime: binding.get('dateTime').value,
-        },
-      };
-    }));
+    return bindings.transform({
+      map: async (binding: any) => {
+        return {
+          content: await getContentOfMember(binding.get('member').value),
+          metadata: {
+            dateTime: binding.get('dateTime').value,
+          },
+        };
+      },
+    });
   } else {
     throw new Error('Only LDES in LDP is supported at the moment');
   }
@@ -162,9 +168,9 @@ async function getContentOfMember(memberUrl: string) {
     OPTIONAL { ?actorUrl as:name ?actorName. }
     OPTIONAL { ?targetUrl as:name ?targetName. }
     OPTIONAL { ?id as:context ?context. }
-  }`;
+  } LIMIT 1`;
 
-  const bindings = await (await engine.queryBindings(query, {sources: [memberUrl]})).toArray();
+  const bindings = await (await engine.queryBindings(query, {sources: [memberUrl], lenient: true})).toArray();
   if (bindings.length !== 1) {
     console.warn(`Found ${bindings.length} results for content, expected 1.`);
   }
@@ -200,7 +206,7 @@ async function getContentOfMember(memberUrl: string) {
                             as:object ?object.
     }`;
 
-    const relationshipBindings = await (await engine.queryBindings(relationshipQuery, {sources: [memberUrl]})).toArray();
+    const relationshipBindings = await (await engine.queryBindings(relationshipQuery, {sources: [memberUrl], lenient: true})).toArray();
     if (relationshipBindings.length !== 1) {
       console.warn(`Found ${relationshipBindings.length} results for relationship, expected 1.`);
     } else {
@@ -224,6 +230,6 @@ async function getTypesOfUri(uri: string, source: string) {
       <${uri}> a ?type.
     }`;
 
-  const bindings = await (await engine.queryBindings(query, {sources: [source]})).toArray();
+  const bindings = await (await engine.queryBindings(query, {sources: [source], lenient: true, '@comunica/actor-rdf-resolve-hypermedia-links-traverse:traverse': false})).toArray();
   return bindings.map((binding: any) => binding.get('type').value);
 }

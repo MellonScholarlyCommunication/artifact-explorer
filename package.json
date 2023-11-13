@@ -23,6 +23,6 @@
     "typescript": "^5.2.2"
   },
   "dependencies": {
-    "@comunica/query-sparql": "^2.9.0"
+    "@comunica/query-sparql-link-traversal-solid": "^0.2.0"
   }
 }
