@@ -138,8 +138,7 @@ export async function getMembersOfFragment(ldesUrl: string, fragmentUri: string,
       });
     }) as typeof fetch;
 
-    // TODO: remove fragmentUri from sources again, as it should be automatically discovered by the link traversal.
-    const bindings = await engine.queryBindings(query, {sources: [ldesUrl, fragmentUri], fetch: customFetch, lenient: false});
+    const bindings = await engine.queryBindings(query, {sources: [ldesUrl], fetch: customFetch, lenient: false});
 
     return bindings.transform({
       map: async (binding: any) => {
@@ -170,7 +169,7 @@ async function getContentOfMember(memberUrl: string) {
     OPTIONAL { ?id as:context ?context. }
   } LIMIT 1`;
 
-  const bindings = await (await engine.queryBindings(query, {sources: [memberUrl], lenient: true})).toArray();
+  const bindings = await (await engine.queryBindings(query, {sources: [memberUrl], lenient: true, '@comunica/actor-rdf-resolve-hypermedia-links-traverse:traverse': false})).toArray();
   if (bindings.length !== 1) {
     console.warn(`Found ${bindings.length} results for content, expected 1.`);
   }
@@ -206,7 +205,7 @@ async function getContentOfMember(memberUrl: string) {
                             as:object ?object.
     }`;
 
-    const relationshipBindings = await (await engine.queryBindings(relationshipQuery, {sources: [memberUrl], lenient: true})).toArray();
+    const relationshipBindings = await (await engine.queryBindings(relationshipQuery, {sources: [memberUrl], lenient: true, '@comunica/actor-rdf-resolve-hypermedia-links-traverse:traverse': false})).toArray();
     if (relationshipBindings.length !== 1) {
       console.warn(`Found ${relationshipBindings.length} results for relationship, expected 1.`);
     } else {
