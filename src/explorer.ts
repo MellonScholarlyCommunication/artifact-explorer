@@ -4,9 +4,9 @@ const engine = new QueryEngine();
 
 export async function exploreArtifact(artifactUrl: string): Promise<any> {
   const ldes = await getLdesUrl(artifactUrl);
-  const isLDESinLDPClient = await isLDESinLDP(ldes);
+  const eventLogType = await getEventLogType(ldes);
 
-  if (isLDESinLDPClient) {
+  if (eventLogType === 'LDESinLDP') {
     console.log('LDES in LDP');
     const nodeRelations = await getNodeRelations(ldes);
     console.log(nodeRelations);
@@ -23,9 +23,25 @@ export async function exploreArtifact(artifactUrl: string): Promise<any> {
       url: ldes,
       type: 'LDESinLDP',
     };
+  } else if (eventLogType === 'LDES') {
+    console.log('LDES');
+
+    const views = await getViews(ldes);
+
+    return {
+      pages: views.transform({
+        map: (view: any) => {
+          return {
+            uri: view.view,
+            sort: view.view,
+          }
+        }
+      }),
+      url: ldes,
+      type: 'LDES',
+    };
   } else {
-    console.log('LDES not in LDP');
-    throw new Error('Only LDES in LDP is supported at the moment');
+    throw new Error('Only LDESinLDP and LDES are supported at the moment');
   }
 }
 
@@ -51,7 +67,7 @@ async function getLdesUrl(artifactUrl: string) {
   return ldes;
 }
 
-async function isLDESinLDP(ldesUrl?: string) {
+async function getEventLogType(ldesUrl?: string) {
   if (!ldesUrl) {
     return false;
   }
@@ -59,17 +75,30 @@ async function isLDESinLDP(ldesUrl?: string) {
     PREFIX ldes: <https://w3id.org/ldes#>
     PREFIX tree: <https://w3id.org/tree#>
     
-    ASK {
-      <${ldesUrl}> a ldes:EventStream;
-                   tree:view ?view.
-      ?view a tree:Node;
-            tree:viewDescription ?viewDescription.
-      ?viewDescription a tree:ViewDescription;
-            ldes:managedBy ?ldesInLdp.
-      ?ldesInLdp a ldes:LDESinLDPClient.
-    }`;
+    SELECT * WHERE {
+      {
+        SELECT ("LDES" AS ?type) WHERE {
+          <${ldesUrl}> a ldes:EventStream;
+                       tree:view ?view.
+          <${ldesUrl}> tree:member ?member.
+        }
+      }
+      UNION
+      {
+        SELECT ("LDESinLDP" AS ?type) WHERE {
+          <${ldesUrl}> a ldes:EventStream;
+                       tree:view ?view.
+          ?view a tree:Node;
+                tree:viewDescription ?viewDescription.
+          ?viewDescription a tree:ViewDescription;
+                ldes:managedBy ?ldesInLdp.
+          ?ldesInLdp a ldes:LDESinLDPClient.
+        }
+      }
+    } LIMIT 1`;
 
-  return await engine.queryBoolean(query, {sources: [ldesUrl], lenient: true});
+  const bindings = await (await engine.queryBindings(query, {sources: [ldesUrl], lenient: true})).toArray();
+  return bindings[0]?.get('type')?.value;
 }
 
 async function getNodeRelations(ldesUrl: string) {
@@ -99,6 +128,28 @@ async function getNodeRelations(ldesUrl: string) {
         node: binding.get('node').value,
         value: binding.get('value')?.value,
         path: binding.get('path')?.value,
+      };
+    },
+  });
+}
+
+async function getViews(ldesUrl: string) {
+  const query = `
+    PREFIX ldes: <https://w3id.org/ldes#>
+    PREFIX tree: <https://w3id.org/tree#>
+    
+    SELECT ?view
+    WHERE {
+        <${ldesUrl}> a ldes:EventStream;
+                     tree:view ?view.
+    }`;
+
+  const bindingsStream = (await engine.queryBindings(query, {sources: [ldesUrl], lenient: true, '@comunica/actor-rdf-resolve-hypermedia-links-traverse:traverse': false}));
+
+  return bindingsStream.transform({
+    map: (binding: any) => {
+      return {
+        view: binding.get('view').value,
       };
     },
   });
@@ -150,8 +201,53 @@ export async function getMembersOfFragment(ldesUrl: string, fragmentUri: string,
         };
       },
     });
+  } else if (type === 'LDES') {
+    const query = `
+    PREFIX ldes: <https://w3id.org/ldes#>
+    PREFIX tree: <https://w3id.org/tree#>
+    PREFIX as: <https://www.w3.org/ns/activitystreams#>
+    
+    SELECT ?member ?actorUrl ?actorName ?object ?targetUrl ?targetName ?context
+    WHERE {
+      <${ldesUrl}> a ldes:EventStream;
+                    tree:view <${fragmentUri}>;
+                    tree:member ?member.
+      ?member as:actor ?actorUrl;
+        as:object ?object.
+      OPTIONAL { ?id as:target ?targetUrl. }
+      OPTIONAL { ?actorUrl as:name ?actorName. }
+      OPTIONAL { ?targetUrl as:name ?targetName. }
+      OPTIONAL { ?id as:context ?context. }
+    }`;
+
+    const bindingsStream = (await engine.queryBindings(query, {sources: [ldesUrl], lenient: true}));
+
+    return bindingsStream.transform({
+      map: async (binding: any) => {
+        const objectTypes = await getTypesOfUri(binding.get('object').value, fragmentUri);
+        let objectRelationship = {};
+        if (objectTypes.includes('https://www.w3.org/ns/activitystreams#Relationship')) {
+          objectRelationship = await getRelationship(binding.get('object').value, fragmentUri);
+        }
+        return {
+          content: {
+            id: binding.get('member').value,
+            actorUrl: binding.get('actorUrl').value,
+            actorName: binding.get('actorName')?.value,
+            object: binding.get('object').value,
+            targetUrl: binding.get('targetUrl')?.value,
+            targetName: binding.get('targetName')?.value,
+            context: binding.get('context')?.value,
+            types: await getTypesOfUri(binding.get('member').value, fragmentUri),
+            objectTypes: objectTypes,
+            objectRelationship: objectRelationship,
+          },
+          metadata: {},
+        };
+      }
+    });
   } else {
-    throw new Error('Only LDES in LDP is supported at the moment');
+    throw new Error('Only LDESinLDP and LDES are supported at the moment');
   }
 }
 
@@ -195,28 +291,7 @@ async function getContentOfMember(memberUrl: string) {
   content.objectTypes = await getTypesOfUri(content.object, memberUrl);
 
   if (content.objectTypes.includes('https://www.w3.org/ns/activitystreams#Relationship')) {
-    const relationshipQuery = `
-    PREFIX as: <https://www.w3.org/ns/activitystreams#>
-    
-    SELECT ?subject ?relationship ?object
-    WHERE {
-        <${content.object}> as:subject ?subject;
-                            as:relationship ?relationship;
-                            as:object ?object.
-    }`;
-
-    const relationshipBindings = await (await engine.queryBindings(relationshipQuery, {sources: [memberUrl], lenient: true, '@comunica/actor-rdf-resolve-hypermedia-links-traverse:traverse': false})).toArray();
-    if (relationshipBindings.length !== 1) {
-      console.warn(`Found ${relationshipBindings.length} results for relationship, expected 1.`);
-    } else {
-      content.objectRelationship = relationshipBindings.map((binding: any) => {
-        return {
-          subject: binding.get('subject').value,
-          relationship: binding.get('relationship').value,
-          object: binding.get('object').value,
-        };
-      })[0];
-    }
+    content.objectRelationship = await getRelationship(content.object, memberUrl);
   }
 
   return content;
@@ -231,4 +306,25 @@ async function getTypesOfUri(uri: string, source: string) {
 
   const bindings = await (await engine.queryBindings(query, {sources: [source], lenient: true, '@comunica/actor-rdf-resolve-hypermedia-links-traverse:traverse': false})).toArray();
   return bindings.map((binding: any) => binding.get('type').value);
+}
+
+async function getRelationship(uri: string, source: string) {
+  const query = `
+    PREFIX as: <https://www.w3.org/ns/activitystreams#>
+    
+    SELECT ?subject ?relationship ?object
+    WHERE {
+        <${uri}> as:subject ?subject;
+                 as:relationship ?relationship;
+                 as:object ?object.
+    } LIMIT 1`;
+
+  const bindings = await (await engine.queryBindings(query, {sources: [source], lenient: true, '@comunica/actor-rdf-resolve-hypermedia-links-traverse:traverse': false})).toArray();
+  return bindings.map((binding: any) => {
+    return {
+      subject: binding.get('subject').value,
+      relationship: binding.get('relationship').value,
+      object: binding.get('object').value,
+    };
+  })[0] || {};
 }
