@@ -21,8 +21,9 @@ type Member = {
    objectRelationship: Relationship | undefined,
 }
 
-export async function exploreArtifact(artifactUrl: string): Promise<AsyncIterator<Member>> {
-   const eventLog = await getEventLogUrl(artifactUrl);
+export async function exploreArtifact(artifactUrl: string, serviceNodeUrl?: string): Promise<AsyncIterator<Member>> {
+   let eventLog = await getEventLogUrl(serviceNodeUrl || artifactUrl);
+   eventLog = eventLog.replace('{url}', artifactUrl);
 
    return await getMembersOfFragment(eventLog);
 }
