@@ -1,1 +1,1 @@
-export {exploreArtifact, getMembersOfFragment} from './explorer';
+export {exploreArtifact} from './explorer';
