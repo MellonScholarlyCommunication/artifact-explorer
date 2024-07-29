@@ -35,8 +35,8 @@ async function getEventLogUrl(artifactUrl: string) {
    const response = await fetch(artifactUrl, {method: 'HEAD'});
    const linkHeaders = response.headers.get('Link-Template')?.split(',').map((linkHeader: string) => {
       const linkHeaderParts = linkHeader.trim().split(';');
-      const url = linkHeaderParts[0].slice(1, -1);
-      const rel = linkHeaderParts[1].trim().split('=')[1].slice(1, -1);
+      const url = linkHeaderParts[0].trim().slice(1, -1);
+      const rel = linkHeaderParts[1].trim().split('=')[1].trim().slice(1, -1);
       return {url, rel};
    });
    const eventLog = linkHeaders?.find((linkHeader: {
