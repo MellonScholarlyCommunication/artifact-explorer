@@ -6,14 +6,10 @@ import { exploreArtifact } from '../dist/explorer.js';
 const program = new Command();
 
 program
-    .name('artifact_admin.js');
-
-program
-    .command('explore')
+    .name('artifact_admin.js')
     .option('-s,--service <service_node>')
     .argument('url')
     .action( async (url,opts) => {
-        console.log(opts);
         const result = await exploreArtifact(url,opts.service);
         for await (const member of result) {
             console.log(await member);

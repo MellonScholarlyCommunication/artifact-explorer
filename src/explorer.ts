@@ -25,6 +25,7 @@ export async function exploreArtifact(artifactUrl: string, serviceNodeUrl?: stri
    let eventLog = await getEventLogUrl(serviceNodeUrl || artifactUrl);
    eventLog = eventLog.replace('{url}', artifactUrl);
 
+   console.log(`Artifact: ${artifactUrl}`);
    console.log(`Parsed event log: ${eventLog}`);
    return await getMembersOfFragment(eventLog);
 }
@@ -81,14 +82,19 @@ async function getContentOfMember(memberUrl: string) {
    const query = `
   PREFIX as: <https://www.w3.org/ns/activitystreams#>
   
-  SELECT ?id ?actorUrl ?actorName ?object ?targetUrl ?targetName ?context
+  SELECT ?id ?actorUrl ?actorName ?object ?targetUrl ?targetName ?context ?published
   WHERE {
     ?id as:actor ?actorUrl;
         as:object ?object.
-    OPTIONAL { ?id as:target ?targetUrl. }
+    OPTIONAL { 
+      ?id as:target ?targetUrl. 
+      OPTIONAL {
+         ?targetUrl as:name ?targetName. 
+      }
+    }
     OPTIONAL { ?actorUrl as:name ?actorName. }
-    OPTIONAL { ?targetUrl as:name ?targetName. }
     OPTIONAL { ?id as:context ?context. }
+    OPTIONAL { ?id as:published ?published . }
   } LIMIT 1`;
 
    const bindings = await (await engine.queryBindings(query, {sources: [memberUrl], lenient: true})).toArray();
@@ -98,6 +104,7 @@ async function getContentOfMember(memberUrl: string) {
    else {
       console.log(`Found ${bindings.length} result for parsing ${memberUrl}`);
    }
+   
    const content = bindings.map((binding: any) => {
       return {
          id: binding.get('id').value,
@@ -107,6 +114,7 @@ async function getContentOfMember(memberUrl: string) {
          targetUrl: binding.get('targetUrl')?.value,
          targetName: binding.get('targetName')?.value,
          context: binding.get('context')?.value,
+         published: binding.get('published')?.value,
          types: [] as any,
          objectTypes: [] as any,
          objectRelationship: {} as any,
