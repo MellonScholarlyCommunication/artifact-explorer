@@ -24,6 +24,7 @@
     "typescript": "^5.2.2"
   },
   "dependencies": {
-    "@comunica/query-sparql": "^3.2.0"
+    "@comunica/query-sparql": "^3.2.3",
+    "commander": "^12.1.0"
   }
 }

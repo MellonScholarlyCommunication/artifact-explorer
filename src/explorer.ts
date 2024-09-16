@@ -25,6 +25,7 @@ export async function exploreArtifact(artifactUrl: string, serviceNodeUrl?: stri
    let eventLog = await getEventLogUrl(serviceNodeUrl || artifactUrl);
    eventLog = eventLog.replace('{url}', artifactUrl);
 
+   console.log(`Parsed event log: ${eventLog}`);
    return await getMembersOfFragment(eventLog);
 }
 
@@ -51,6 +52,7 @@ async function getEventLogUrl(artifactUrl: string) {
 }
 
 async function getMembersOfFragment(ldesUrl: string): Promise<AsyncIterator<Member>> {
+   console.log(`Selecting member of ${ldesUrl}`);
 
    const query = `
     PREFIX ldes: <https://w3id.org/ldes#>
@@ -69,6 +71,7 @@ async function getMembersOfFragment(ldesUrl: string): Promise<AsyncIterator<Memb
       map: async (binding: Bindings): Promise<Member> => {
          const memberUrl = binding.get('member')!.value;
 
+         console.log(`Member: ${memberUrl}`);
          return await getContentOfMember(memberUrl);
       }
    }) as unknown as Promise<AsyncIterator<Member>>;
@@ -91,6 +94,9 @@ async function getContentOfMember(memberUrl: string) {
    const bindings = await (await engine.queryBindings(query, {sources: [memberUrl], lenient: true})).toArray();
    if (bindings.length !== 1) {
       console.warn(`Found ${bindings.length} results for content, expected 1.`);
+   }
+   else {
+      console.log(`Found ${bindings.length} result for parsing ${memberUrl}`);
    }
    const content = bindings.map((binding: any) => {
       return {
@@ -124,7 +130,7 @@ async function getTypesOfUri(uri: string | undefined, source: string) {
    if (!uri) {
       return [];
    }
-
+   
    const query = `    
     SELECT ?type
     WHERE {
@@ -132,6 +138,8 @@ async function getTypesOfUri(uri: string | undefined, source: string) {
     }`;
 
    const bindings = await (await engine.queryBindings(query, {sources: [source], lenient: true})).toArray();
+
+   console.log(`Found ${bindings.length} bindings getTypesOfUri(${uri},${source})`);
    return bindings.map((binding: any) => binding.get('type').value);
 }
 
